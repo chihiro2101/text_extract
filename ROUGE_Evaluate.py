@@ -7,8 +7,8 @@ import statistics as sta
 
 
 def main():
-    hyp = 'hyp'
-    raw_ref = 'duc2002_summaries_I'
+    hyp = 'hyp1'
+    raw_ref = 'abstracts'
     FJoin = os.path.join
     files_hyp = [FJoin(hyp, f) for f in os.listdir(hyp)]
     files_raw_ref = [FJoin(raw_ref, f) for f in os.listdir(hyp)]
@@ -33,9 +33,12 @@ def main():
         try:
             rouge = Rouge()
             scores = rouge.get_scores(hyp, ref, avg=True)
-            rouge_1 = scores["rouge-1"]["r"]
-            rouge_2 = scores["rouge-2"]["r"]
-            rouge_L = scores["rouge-l"]["r"]
+            # rouge_1 = scores["rouge-1"]["r"]
+            # rouge_2 = scores["rouge-2"]["r"]
+            # rouge_L = scores["rouge-l"]["r"]
+            rouge_1 = scores["rouge-1"]["f"]
+            rouge_2 = scores["rouge-2"]["f"]
+            rouge_L = scores["rouge-l"]["f"]
             rouge_1_tmp.append(rouge_1)
 
             rouge_2_tmp.append(rouge_2)

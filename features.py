@@ -27,12 +27,12 @@ class METRIC(object):
                 p = p + math.sqrt(1 / (i + 1))
         return p
 
-    def scale_noun(self):
-        scale = 0
-        for i in range(self.n):
-            if self.values[i] == 1:
-                scale += self.number_of_nouns[i]
-        return scale / self.sum_nouns
+    # def scale_noun(self):
+    #     scale = 0
+    #     for i in range(self.n):
+    #         if self.values[i] == 1:
+    #             scale += self.number_of_nouns[i]
+    #     return scale / self.sum_nouns
 
     def relationT(self):
         rt = 0
@@ -42,32 +42,33 @@ class METRIC(object):
         return rt
 
     def cohesion(self):
-        C = 0
-        M_init = []
+        Ns = (self.O())*(self.O() - 1)/2.0
+        simcos_sents_in_summary = []
         for i in range(self.n - 1):
             if self.values[i] == 1:
                 for j in range(i+1, self.n):
                     if self.values[j] == 1:
-                        sim_2sents = self.sim2sents[i][j]
-                        C = C + sim_2sents
-                        M_init.append(sim_2sents)
-        Ns = (self.O())*(self.O() - 1)/2.0
+                        simcos_sents_in_summary.append(self.sim2sents[i][j])
 
-        Cs = C/Ns
-        if len(M_init) == 0:
+        Cs = np.sum(simcos_sents_in_summary)/Ns
+        try:
+            M = max(simcos_sents_in_summary)
+        except:
             M = 0
+        if M == 0:
+            CoH = 0
         else:
-            M = max(M_init)
-        CoH = (math.log(Cs*9.0+1.0))/(math.log(M*9.0+1.0) + 0.00001)
+            CoH = (math.log(Cs*9.0+1.0))/(math.log(M*9.0+1.0))
         return CoH
 
     def Cov(self):
         cov = 0
         for i in range(self.n - 1):
             if self.values[i] == 1:
-                for j in range(i+1, len(self.sentences)):
-                    if self.values[j] == 1:
-                        cov += self.simWithDoc[i] + self.simWithDoc[j]
+                # for j in range(i+1, len(self.sentences)):
+                #     if self.values[j] == 1:
+                #         cov += self.simWithDoc[i] + self.simWithDoc[j]
+                cov += self.simWithDoc[i]
         return cov
 
     def leng(self):
@@ -94,35 +95,33 @@ class METRIC(object):
         return len(words)
 
     def fitness(self):
-        pos = 0.35
         rel = 0.35
-        cover = 0.005
-        coh = 0.005
-        le  = 0.29
-        fit = pos*self.position() + rel*self.relationT() + cover*self.Cov() + coh*self.cohesion() +le*self.leng()
+        cover = 0.3
+        le  = 0.35
+        fit = rel*self.relationT() + cover*self.Cov() + le*self.leng()
         return fit
 
-    def GLS(self):
-        sim_sent = []
-        sim_sent = self.simWithTitle
-        c = []
-        d = []
-        p = [0]*self.n
-        max_sim = max(sim_sent)
-        for i in range(self.n):
-            c.append(math.sqrt(1 / (i + 1)) + sim_sent[i]/max_sim)
-            d.append(c[i]/(1+p[i]))
+    # def GLS(self):
+    #     sim_sent = []
+    #     sim_sent = self.simWithTitle
+    #     c = []
+    #     d = []
+    #     p = [0]*self.n
+    #     max_sim = max(sim_sent)
+    #     for i in range(self.n):
+    #         c.append(math.sqrt(1 / (i + 1)) + sim_sent[i]/max_sim)
+    #         d.append(c[i]/(1+p[i]))
 
-        gls = 0
-        for i in range(self.n):
-            if d[i] == min(d):
-                p[i] += 1
-            gls += 0.5*p[i]*self.values[i]
-        return self.fitness() - gls
+    #     gls = 0
+    #     for i in range(self.n):
+    #         if d[i] == min(d):
+    #             p[i] += 1
+    #         gls += 0.5*p[i]*self.values[i]
+    #     return self.fitness() - gls
 
 
 def compute_fitness(title, sentences, agent, simWithTitle, simWithDoc, sim2sents, number_of_nouns):
     metric = METRIC(title, sentences, agent, simWithTitle,
                     simWithDoc, sim2sents, number_of_nouns)
-    return metric.GLS()
-    # return metric.fitness()
+    # return metric.GLS()
+    return metric.fitness()

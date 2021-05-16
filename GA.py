@@ -5,7 +5,6 @@ from preprocess import sim_with_title
 from preprocess import sim_with_doc
 from preprocess import sim_2_sent
 from preprocess import count_noun
-from preprocess import word_frequencies
 from copy import copy
 from copy import deepcopy
 import numpy as np
@@ -14,8 +13,6 @@ import nltk
 import os.path
 import statistics as sta
 import re
-from preprocess import preprocess_for_article
-from preprocess import preprocess_numberOfNNP
 import time
 import os
 import glob
@@ -24,6 +21,7 @@ from shutil import copyfile
 import pandas as pd
 import math
 import multiprocessing
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 
 class Summerizer(object):
@@ -149,12 +147,9 @@ class Summerizer(object):
         if len(population) == 0:
             population = self.generate_population(self.population_size)
 
-        max_sent = 6
-        if len(self.sentences) < 6:
+        max_sent = int(len(self.sentences)*0.2)
+        if len(self.sentences) < max_sent:
             max_sent = len(self.sentences)
-
-        
-        
 
         population = sorted(population, key=lambda x: x[1], reverse=True)
 
@@ -164,7 +159,6 @@ class Summerizer(object):
 
         population = population[chosen_agents : ]
         
-
         total_fitness = 0
         for indivi in population:
             total_fitness = total_fitness + indivi[1]  
@@ -241,12 +235,30 @@ class Summerizer(object):
         best_individual = sorted(population, key=lambda x: x[1], reverse=True)[0]
         return best_individual
  
-
+    def check_best(self, arr):
+        if len(arr) > 30:
+            reversed_arr = arr[::-1][:20]
+            if reversed_arr[0] > reversed_arr[-1]:
+                return True
+            else: 
+                return False
+        else:
+            return True
    #MASingleDocSum    
     def solve(self):
         population = self.generate_population(self.population_size)
-        for i in tqdm(range(self.max_generation)):
+        best_individual = sorted(population, key=lambda x: x[1], reverse=True)[1]
+        best_fitness_value = best_individual[1]
+        tmp_arr = []
+        tmp_arr.append(best_fitness_value)
+        count = 0
+    
+        while count < self.max_generation or self.check_best(tmp_arr) == True:
             population = self.selection(population)
+            best_individual = sorted(population, key=lambda x: x[1], reverse=True)[0]
+            best_fitness_value = best_individual[1]  
+            tmp_arr.append(best_fitness_value)          
+            count +=1
         return self.find_best_individual(population)
     
     
@@ -255,7 +267,7 @@ class Summerizer(object):
         f = open(file,'w', encoding='utf-8')
         for i in range(len(index)):
             if index[i] == 1:
-                f.write(self.raw_sentences[i] + '\n')
+                f.write(self.raw_sentences[i] + ' ')
         f.close()
 
 def load_a_doc(filename):
@@ -274,57 +286,65 @@ def load_docs(directory):
 	return docs
 
 def clean_text(text):
-    cleaned = "".join(u for u in text if u not in ("?", ".", ";", ":", "!", ",")).strip()
+    cleaned = "".join(u for u in text if u not in ("?", ".", ";", ":", "!", ",", "'", "(", ")")).strip()
     check_text = "".join((item for item in cleaned if not item.isdigit())).strip()
     if len(check_text.split(" ")) < 4:
         return 'None'
-    return cleaned
+    return text
 
 
 def start_run(processID, POPU_SIZE, MAX_GEN, CROSS_RATE, MUTATE_RATE, sub_stories, save_path):
    
     for example in sub_stories:
         start_time = time.time()
-        raw_sents = re.split("\n", example[0]) 
+        raw_sents = re.split("\n\n", example[0])[1].split(' . ')
+        title = re.split("\n\n", example[0])[0] 
+
+        #remove too short sentences
         df = pd.DataFrame(raw_sents, columns =['raw'])
         df['preprocess_raw'] = df['raw'].apply(lambda x: clean_text(x))
         newdf = df.loc[(df['preprocess_raw'] != 'None')]
         raw_sentences = newdf['preprocess_raw'].values.tolist()
         if len(raw_sentences) == 0:
             continue
-       
-        title_raw = raw_sentences[0]
-        sentences = []
-        sentences_for_NNP = []
-        for raw_sent in raw_sentences:
-            sent = preprocess_raw_sent(raw_sent)
-            
-            sent_tmp = preprocess_raw_sent(raw_sent, True)
-            if len(sent.split(' ')) < 2:
-                raw_sentences.remove(raw_sent)
-            else:
-                sentences.append(sent)
-                sentences_for_NNP.append(sent_tmp)
-        title = preprocess_raw_sent(title_raw)
-        list_sentences_frequencies = word_frequencies(sentences, title)
-        number_of_nouns = count_noun(sentences_for_NNP)
-        simWithTitle = sim_with_title(list_sentences_frequencies)
-        sim2sents = sim_2_sent(list_sentences_frequencies)
-        simWithDoc = []
-        # for sent in sentences:
-        for i in range(len(sentences)):
-            simWithDoc.append(sim_with_doc(list_sentences_frequencies, index_sentence=i))
 
+        preprocessed_sentences = []
+        for raw_sent in raw_sentences:
+            preprocessed_sent = preprocess_raw_sent(raw_sent)
+            preprocessed_sentences.append(preprocessed_sent)
+            
+        #tfidf for sentences 
+        bodyandtitle = preprocessed_sentences.copy()
+        bodyandtitle.append(preprocess_raw_sent(title.lower()))
+        vectorizer = TfidfVectorizer()
+        vectors = vectorizer.fit_transform(bodyandtitle)
+        feature_names = vectorizer.get_feature_names()
+        dense = vectors.todense()
+        denselist = dense.tolist()
+        df_tfidf = pd.DataFrame(denselist, columns=feature_names)
+        title_vector = denselist[-1]
+
+        #tfidf for document
+        document = [(" ").join(bodyandtitle)]
+        vector_doc = vectorizer.fit_transform(document)
+        dense_doc = vector_doc.todense()
+        document_vector = dense_doc.tolist()[0]
+
+        list_sentences_frequencies = denselist[:-1]
+        number_of_nouns = count_noun(preprocessed_sentences, option= False)
+        simWithTitle = sim_with_title(list_sentences_frequencies, title_vector)
+        sim2sents = sim_2_sent(list_sentences_frequencies)
+        simWithDoc = sim_with_doc(list_sentences_frequencies, document_vector)
           
         print("Done preprocessing!")
         
         print('time for processing', time.time() - start_time)
-        if len(sentences) < 4:
-            NUM_PICKED_SENTS = len(sentences)
+        if len(preprocessed_sent) < 4:
+            NUM_PICKED_SENTS = len(preprocessed_sentences)
         else:
             NUM_PICKED_SENTS = 4
         # DONE!
-        Solver = Summerizer(title, sentences, raw_sentences, POPU_SIZE, MAX_GEN, CROSS_RATE, MUTATE_RATE, NUM_PICKED_SENTS, simWithTitle, simWithDoc, sim2sents, number_of_nouns)
+        Solver = Summerizer(title, preprocessed_sentences, raw_sentences, POPU_SIZE, MAX_GEN, CROSS_RATE, MUTATE_RATE, NUM_PICKED_SENTS, simWithTitle, simWithDoc, sim2sents, number_of_nouns)
         best_individual = Solver.solve()
         file_name = os.path.join(save_path, example[1] )    
 
@@ -352,12 +372,12 @@ def multiprocess(num_process, POPU_SIZE, MAX_GEN, CROSS_RATE, MUTATE_RATE, stori
 def main():
     # Setting Variables
     POPU_SIZE = 30
-    MAX_GEN = 50
+    MAX_GEN = 200
     CROSS_RATE = 0.8
     MUTATE_RATE = 0.4
     # NUM_PICKED_SENTS = 4
 
-    directory = 'duc2002_documents_2'
+    directory = 'documents'
     save_path=['hyp1', 'hyp2', 'hyp3', 'hyp4', 'hyp5']
 
     if not os.path.exists('hyp1'):
@@ -372,8 +392,6 @@ def main():
         os.makedirs('hyp5')
 
 
-
-
     print("Setting: ")
     print("POPULATION SIZE: {}".format(POPU_SIZE))
     print("MAX NUMBER OF GENERATIONS: {}".format(MAX_GEN))
@@ -381,12 +399,12 @@ def main():
     print("MUTATION SIZE: {}".format(MUTATE_RATE))
 
     # list of documents
-    stories = load_docs(directory)[:500]
+    stories = load_docs(directory)
     start_time = time.time()
     
-    multiprocess(5, POPU_SIZE, MAX_GEN, CROSS_RATE,
-                 MUTATE_RATE, stories, save_path)
-    # start_run(1, POPU_SIZE, MAX_GEN, CROSS_RATE, MUTATE_RATE, stories, save_path[0])
+    # multiprocess(5, POPU_SIZE, MAX_GEN, CROSS_RATE,
+    #              MUTATE_RATE, stories, save_path)
+    start_run(1, POPU_SIZE, MAX_GEN, CROSS_RATE, MUTATE_RATE, stories, save_path[0])
 
     print("--- %s mins ---" % ((time.time() - start_time)/(60.0*len(stories))))
 
